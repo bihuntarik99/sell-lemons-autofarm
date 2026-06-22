@@ -638,16 +638,28 @@ task.spawn(function()
     end
 end)
 
--- Auto Click Stand
+-- Auto Click Earning: Teleport ke earner -> klik Prompt -> pindah ke berikutnya
 task.spawn(function()
     while true do
         if State.AutoClickStand then
-            refreshClickables()
-            for _, pp in ipairs(EarnerPrompts) do
-                pcall(function() fireproximityprompt(pp) end)
+            refreshEarnerRemotes()
+            local char = LocalPlayer.Character
+            if char then
+                local hrp = char:FindFirstChild('HumanoidRootPart')
+                if hrp then
+                    for _, earner in ipairs(EarnerRemotes) do
+                        if not State.AutoClickStand then break end
+                        -- Teleport ke earner
+                        hrp.CFrame = CFrame.new(earner.part.Position + Vector3.new(0, 3, 5))
+                        task.wait(0.2)
+                        -- Klik prompt
+                        pcall(function() fireproximityprompt(earner.part:FindFirstChildOfClass('ProximityPrompt')) end)
+                        task.wait(0.3)
+                    end
+                end
             end
         end
-        task.wait(0.5)
+        task.wait(1)
     end
 end)
 
