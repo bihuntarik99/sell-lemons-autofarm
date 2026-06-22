@@ -1,22 +1,21 @@
 --[[
     ============================================
-    DeepHUB - Sell Lemons Auto Farm v3.1
+    DeepHUB - Sell Lemons Auto Farm v4.0
     UI Library: Rayfield
-    Game: Jual Jeruk / Sell Lemons (BloxByte Games)
+    Game: Sell Lemons (BloxByte Games)
     ============================================
-    v3.1 Changes:
-    - Info per section: X/Y unlocked, X bought, X locked
-    - Info earner upgrade level di UI
-    - Cash real-time display
-    ============================================
-    v3.0 Changes:
-    - Per-section auto buy (pilih section mana yang mau dibeli)
-    - Smart buy: beli item yang UANG CUKUP dulu (termurah -> termahal)
-    - Per-earner upgrade toggle (pilih earner mana yang di-upgrade)
-    - Tidak random - user full control
+    v4.0 Changes:
+    - Full English UI
+    - Loading screen until fully loaded
+    - Discord link integration
+    - Auto Click Earning (renamed from Auto Wake Income)
+    - Auto Click Stand = click earner ProximityPrompt for bonus cash
     ============================================
 ]]
 
+-- ============================================================
+-- LOAD RAYFIELD
+-- ============================================================
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Players = game:GetService('Players')
@@ -39,7 +38,7 @@ end
 
 local Tycoon = findMyTycoon()
 if not Tycoon then
-    Rayfield:Notify({ Title = 'Error', Content = 'Tycoon tidak ditemukan!', Duration = 8, Image = 'alert-triangle' })
+    Rayfield:Notify({ Title = 'Error', Content = 'Tycoon not found! Make sure you own a tycoon.', Duration = 8, Image = 'alert-triangle' })
     return
 end
 
@@ -140,106 +139,21 @@ local function formatCash(num)
 end
 
 -- ============================================================
--- STATE
--- ============================================================
-local State = {
-    SectionAutoBuy = {},    -- SectionAutoBuy['Lemon Stand'] = true/false
-    EarnerAutoUpgrade = {}, -- EarnerAutoUpgrade['Lemon Stand'] = true/false
-    AutoRebirth = false,
-    AutoEvolve = false,
-    AutoAscend = false,
-    AutoClickFruit = false,
-    AutoClickStand = false,
-    AutoWakeIncome = false,
-    BuyDelay = 0.1,
-    UpgradeDelay = 0.3,
-    StackCount = 1,
-}
-
--- Initialize section toggles to false
-for name, _ in pairs(SectionMap) do
-    State.SectionAutoBuy[name] = false
-end
-for _, earner in ipairs(EarnerRemotes) do
-    State.EarnerAutoUpgrade[earner.name] = false
-end
-
--- ============================================================
--- ACTION FUNCTIONS
--- ============================================================
-local function purchaseItem(remote)
-    local ok, result = pcall(function() return remote:InvokeServer() end)
-    if ok and result == nil then return true end
-    return false
-end
-
-local function upgradeEarner(earnerName, stackCount)
-    for _, earner in ipairs(EarnerRemotes) do
-        if earner.name == earnerName then
-            local ok = pcall(function() earner.remote:InvokeServer(stackCount or 1) end)
-            return ok
-        end
-    end
-    return false
-end
-
-local function doRebirth(free)
-    local ok = pcall(function() RebirthRemote:InvokeServer(free or false) end)
-    return ok
-end
-
-local function doEvolve()
-    local ok = pcall(function() EvolveRemote:InvokeServer() end)
-    return ok
-end
-
-local function doAscend()
-    local ok = pcall(function() AscendRemote:InvokeServer() end)
-    return ok
-end
-
--- ============================================================
--- SMART BUY: Buy items that are affordable (uang cukup)
--- ============================================================
-local function smartBuySection(sectionName)
-    local items = SectionMap[sectionName]
-    if not items then return 0 end
-
-    local bought = 0
-    -- Try to buy each item - server will reject if can't afford
-    for _, item in ipairs(items) do
-        local ok = purchaseItem(item.remote)
-        if ok then bought = bought + 1 end
-    end
-    return bought
-end
-
--- ============================================================
--- SECTION INFO: Check status of each section
+-- SECTION INFO
 -- ============================================================
 local SectionInfo = {}
 local function getSectionInfo(sectionName)
     if SectionInfo[sectionName] then return SectionInfo[sectionName] end
     local items = SectionMap[sectionName]
     if not items then return nil end
-
-    local bought = 0
-    local unlocked = 0
-    local locked = 0
-
+    local bought, unlocked, locked = 0, 0, 0
     for _, item in ipairs(items) do
         local ok, result = pcall(function() return item.remote:InvokeServer() end)
         if ok then
-            if result == nil then
-                bought = bought + 1
-            else
-                unlocked = unlocked + 1
-            end
-        else
-            locked = locked + 1
-        end
+            if result == nil then bought = bought + 1
+            else unlocked = unlocked + 1 end
+        else locked = locked + 1 end
     end
-
     SectionInfo[sectionName] = { bought = bought, unlocked = unlocked, locked = locked, total = #items }
     return SectionInfo[sectionName]
 end
@@ -249,13 +163,71 @@ local function getEarnerLevel(earnerName)
 end
 
 -- ============================================================
+-- STATE
+-- ============================================================
+local State = {
+    SectionAutoBuy = {},
+    EarnerAutoUpgrade = {},
+    AutoRebirth = false,
+    AutoEvolve = false,
+    AutoAscend = false,
+    AutoClickFruit = false,
+    AutoClickEarning = false,  -- Renamed from AutoClickStand
+    BuyDelay = 0.1,
+    UpgradeDelay = 0.3,
+    StackCount = 1,
+}
+
+for name, _ in pairs(SectionMap) do State.SectionAutoBuy[name] = false end
+for _, earner in ipairs(EarnerRemotes) do State.EarnerAutoUpgrade[earner.name] = false end
+
+-- ============================================================
+-- ACTION FUNCTIONS
+-- ============================================================
+local function purchaseItem(remote)
+    local ok, result = pcall(function() return remote:InvokeServer() end)
+    return ok and result == nil
+end
+
+local function upgradeEarner(earnerName, stackCount)
+    for _, earner in ipairs(EarnerRemotes) do
+        if earner.name == earnerName then
+            return pcall(function() earner.remote:InvokeServer(stackCount or 1) end)
+        end
+    end
+    return false
+end
+
+local function doRebirth(free)
+    return pcall(function() RebirthRemote:InvokeServer(free or false) end)
+end
+
+local function doEvolve()
+    return pcall(function() EvolveRemote:InvokeServer() end)
+end
+
+local function doAscend()
+    return pcall(function() AscendRemote:InvokeServer() end)
+end
+
+local function smartBuySection(sectionName)
+    local items = SectionMap[sectionName]
+    if not items then return 0 end
+    local bought = 0
+    for _, item in ipairs(items) do
+        if purchaseItem(item.remote) then bought = bought + 1 end
+    end
+    return bought
+end
+
+-- ============================================================
 -- CREATE WINDOW
 -- ============================================================
 local Window = Rayfield:CreateWindow({
-    Name = 'DeepHUB - Sell Lemons v3.1',
-    LoadingTitle = 'DeepHUB - Sell Lemons Auto Farm',
-    LoadingSubtitle = 'v3.1 - Per Section Control + Info',
-    ConfigurationSaving = { Enabled = true, FolderName = 'DeepHUB_SellLemons', FileName = 'Config_v31' },
+    Name = 'DeepHUB - Sell Lemons v4.0',
+    LoadingTitle = 'DeepHUB',
+    LoadingSubtitle = 'Loading Auto Farm...',
+    ConfigurationSaving = { Enabled = true, FolderName = 'DeepHUB_SellLemons', FileName = 'Config_v4' },
     KeySystem = false
 })
 
@@ -263,47 +235,32 @@ local Window = Rayfield:CreateWindow({
 -- STATUS TAB
 -- ============================================================
 local StatusTab = Window:CreateTab('Status', 'home')
-StatusTab:CreateSection('Info')
+StatusTab:CreateSection('Information')
 StatusTab:CreateButton({ Name = 'Tycoon: ' .. Tycoon.Name, Flag = 'TycoonBtn', Callback = function() Rayfield:Notify({ Title = 'Tycoon', Content = Tycoon.Name .. ' | ' .. LocalPlayer.Name, Duration = 4, Image = 'home' }) end })
 
-StatusTab:CreateSection('Stats')
+StatusTab:CreateSection('Statistics')
 StatusTab:CreateButton({
     Name = 'Refresh Stats',
     Flag = 'RefreshBtn',
     Callback = function()
         refreshEarnerRemotes()
         refreshClickables()
-        SectionInfo = {} -- reset cache
-
+        SectionInfo = {}
         local earnerInfo = {}
         for _, e in ipairs(EarnerRemotes) do
             table.insert(earnerInfo, e.name .. ' Lv.' .. getEarnerLevel(e.name))
         end
-
         local sectionInfo = {}
         for name, _ in pairs(SectionMap) do
             local info = getSectionInfo(name)
-            if info then
-                table.insert(sectionInfo, string.format('%s: %d/%d bought | %d unlocked | %d locked',
-                    name, info.bought, info.total, info.unlocked, info.locked))
-            end
+            if info then table.insert(sectionInfo, string.format('%s: %d/%d bought | %d unlocked | %d locked', name, info.bought, info.total, info.unlocked, info.locked)) end
         end
-
         Rayfield:Notify({
             Title = 'Full Stats',
-            Content = string.format('Cash: %s\n\nEarners:\n%s\n\nSections:\n%s',
-                formatCash(getActualCash()),
-                table.concat(earnerInfo, '\n'),
-                table.concat(sectionInfo, '\n')),
+            Content = string.format('Cash: %s\n\nEarners:\n%s\n\nSections:\n%s', formatCash(getActualCash()), table.concat(earnerInfo, '\n'), table.concat(sectionInfo, '\n')),
             Duration = 12, Image = 'bar-chart-2'
         })
     end
-})
-
--- Section Progress Overview
-StatusTab:CreateParagraph({
-    Title = 'Section Progress',
-    Content = 'Klik Refresh Stats untuk lihat detail lengkap.\nAuto-refresh setiap 10 detik.'
 })
 
 StatusTab:CreateParagraph({
@@ -311,17 +268,14 @@ StatusTab:CreateParagraph({
     Content = 'Loading...'
 })
 
--- Live update loop for earner levels AND section progress
+-- Live update loop
 task.spawn(function()
     while true do
-        task.wait(5) -- Update every 5 seconds
+        task.wait(5)
         local earnerInfo = {}
         for _, e in ipairs(EarnerRemotes) do
-            local level = getEarnerLevel(e.name)
-            table.insert(earnerInfo, string.format('%s: Lv.%d', e.name, level))
+            table.insert(earnerInfo, string.format('%s: Lv.%d', e.name, getEarnerLevel(e.name)))
         end
-
-        -- Find the paragraph and update it
         local mainFrame = Window.MainFrame
         if mainFrame then
             local elements = mainFrame:FindFirstChild('Elements')
@@ -331,13 +285,10 @@ task.spawn(function()
                     for _, child in ipairs(statusPage:GetChildren()) do
                         if child:IsA('Frame') and child:FindFirstChild('Title') then
                             local title = child.Title
-                            if title and title:IsA('TextLabel') then
-                                if title.Text == 'Earner Levels (Live)' then
-                                    local content = child:FindFirstChild('Content')
-                                    if content and content:IsA('TextLabel') then
-                                        content.Text = table.concat(earnerInfo, '\n')
-                                    end
-                                end
+                            if title and title:IsA('TextLabel') and title.Text == 'Earner Levels (Live)' then
+                                local content = child:FindFirstChild('Content')
+                                if content and content:IsA('TextLabel') then content.Text = table.concat(earnerInfo, '\n') end
+                                break
                             end
                         end
                     end
@@ -348,219 +299,93 @@ task.spawn(function()
 end)
 
 -- ============================================================
--- AUTO BUY TAB - Per Section
+-- AUTO BUY TAB
 -- ============================================================
 local BuyTab = Window:CreateTab('Auto Buy', 'shopping-cart')
-
-BuyTab:CreateSection('Sections - Enable untuk auto-buy')
+BuyTab:CreateSection('Sections - Enable for auto-buy')
 BuyTab:CreateParagraph({
-    Title = 'Cara Kerja',
-    Content = 'Enable section -> script otomatis beli item yang UANG CUKUP.\nItem yang sudah dibeli atau belum terbuka akan di-skip.\nTidak random - beli yang bisa dibeli saja.'
+    Title = 'How It Works',
+    Content = 'Enable a section -> script automatically buys items you can AFFORD.\nAlready purchased or locked items are skipped.\nNot random - you have full control.'
 })
 
 BuyTab:CreateSlider({
-    Name = 'Buy Delay',
-    Range = {0.05, 1}, Increment = 0.05, Suffix = ' sec', CurrentValue = 0.1,
-    Flag = 'BuyDelaySlider',
-    Callback = function(v) State.BuyDelay = v end
+    Name = 'Buy Delay', Range = {0.05, 1}, Increment = 0.05, Suffix = ' sec', CurrentValue = 0.1,
+    Flag = 'BuyDelaySlider', Callback = function(v) State.BuyDelay = v end
 })
 
 BuyTab:CreateButton({
-    Name = 'Enable All Sections',
-    Flag = 'EnableAllBtn',
+    Name = 'Enable All Sections', Flag = 'EnableAllBtn',
     Callback = function()
         for name, _ in pairs(SectionMap) do State.SectionAutoBuy[name] = true end
-        if Rayfield.Flags then
-            for name, _ in pairs(SectionMap) do
-                local flag = Rayfield.Flags['AutoBuy_' .. name:gsub('%s+', '_')]
-                if flag then flag:Set(true) end
-            end
-        end
-        Rayfield:Notify({ Title = 'Enabled', Content = 'Semua section di-enable!', Duration = 3, Image = 'check-circle' })
+        if Rayfield.Flags then for name, _ in pairs(SectionMap) do local f = Rayfield.Flags['AutoBuy_' .. name:gsub('%s+', '_')] if f then f:Set(true) end end end
+        Rayfield:Notify({ Title = 'Enabled', Content = 'All sections enabled!', Duration = 3, Image = 'check-circle' })
     end
 })
 
 BuyTab:CreateButton({
-    Name = 'Disable All Sections',
-    Flag = 'DisableAllBtn',
+    Name = 'Disable All Sections', Flag = 'DisableAllBtn',
     Callback = function()
         for name, _ in pairs(SectionMap) do State.SectionAutoBuy[name] = false end
-        if Rayfield.Flags then
-            for name, _ in pairs(SectionMap) do
-                local flag = Rayfield.Flags['AutoBuy_' .. name:gsub('%s+', '_')]
-                if flag then flag:Set(false) end
-            end
-        end
-        Rayfield:Notify({ Title = 'Disabled', Content = 'Semua section di-disable!', Duration = 3, Image = 'x-circle' })
+        if Rayfield.Flags then for name, _ in pairs(SectionMap) do local f = Rayfield.Flags['AutoBuy_' .. name:gsub('%s+', '_')] if f then f:Set(false) end end end
+        Rayfield:Notify({ Title = 'Disabled', Content = 'All sections disabled!', Duration = 3, Image = 'x-circle' })
     end
 })
 
--- Section Toggles with Info
 for _, sectionName in ipairs(SectionOrder) do
     local items = SectionMap[sectionName]
     if items then
-        local flagName = 'AutoBuy_' .. sectionName:gsub('%s+', '_')
-        -- Get section info (will cache for future calls)
         local info = getSectionInfo(sectionName)
-        local displayName
-        if info then
-            displayName = string.format('%s | %d/%d bought | %d unlocked | %d locked',
-                sectionName, info.bought, info.total, info.unlocked, info.locked)
-        else
-            displayName = string.format('%s (%d items)', sectionName, #items)
-        end
-        BuyTab:CreateToggle({
-            Name = displayName,
-            CurrentValue = false,
-            Flag = flagName,
-            Callback = function(Value) State.SectionAutoBuy[sectionName] = Value end
-        })
+        local displayName = info and string.format('%s | %d/%d bought | %d unlocked | %d locked', sectionName, info.bought, info.total, info.unlocked, info.locked) or string.format('%s (%d items)', sectionName, #items)
+        BuyTab:CreateToggle({ Name = displayName, CurrentValue = false, Flag = 'AutoBuy_' .. sectionName:gsub('%s+', '_'), Callback = function(Value) State.SectionAutoBuy[sectionName] = Value end })
     end
 end
 
 -- ============================================================
--- AUTO UPGRADE TAB - Per Earner
+-- AUTO UPGRADE TAB
 -- ============================================================
 local UpgradeTab = Window:CreateTab('Auto Upgrade', 'trending-up')
-
 UpgradeTab:CreateSection('Earner Upgrades')
 UpgradeTab:CreateParagraph({
-    Title = 'Cara Kerja',
-    Content = 'Enable earner -> script otomatis upgrade earner tersebut.\nStack count menentukan berapa level sekaligus.'
+    Title = 'How It Works',
+    Content = 'Enable an earner -> script automatically upgrades it.\nStack count determines how many levels at once.'
 })
 
 UpgradeTab:CreateSlider({
-    Name = 'Upgrade Delay',
-    Range = {0.1, 5}, Increment = 0.1, Suffix = ' sec', CurrentValue = 0.3,
-    Flag = 'UpgradeDelaySlider',
-    Callback = function(v) State.UpgradeDelay = v end
+    Name = 'Upgrade Delay', Range = {0.1, 5}, Increment = 0.1, Suffix = ' sec', CurrentValue = 0.3,
+    Flag = 'UpgradeDelaySlider', Callback = function(v) State.UpgradeDelay = v end
 })
 
 UpgradeTab:CreateSlider({
-    Name = 'Stack Count',
-    Range = {1, 100}, Increment = 1, Suffix = 'x', CurrentValue = 1,
-    Flag = 'StackSlider',
-    Callback = function(v) State.StackCount = math.floor(v) end
+    Name = 'Stack Count', Range = {1, 100}, Increment = 1, Suffix = 'x', CurrentValue = 1,
+    Flag = 'StackSlider', Callback = function(v) State.StackCount = math.floor(v) end
 })
 
-UpgradeTab:CreateButton({
-    Name = 'Enable All Earners',
-    Flag = 'EnableAllUpgrades',
-    Callback = function()
-        for _, earner in ipairs(EarnerRemotes) do State.EarnerAutoUpgrade[earner.name] = true end
-        Rayfield:Notify({ Title = 'Enabled', Content = 'Semua earner di-enable!', Duration = 3, Image = 'check-circle' })
-    end
-})
-
-UpgradeTab:CreateButton({
-    Name = 'Disable All Earners',
-    Flag = 'DisableAllUpgrades',
-    Callback = function()
-        for _, earner in ipairs(EarnerRemotes) do State.EarnerAutoUpgrade[earner.name] = false end
-        Rayfield:Notify({ Title = 'Disabled', Content = 'Semua earner di-disable!', Duration = 3, Image = 'x-circle' })
-    end
-})
+UpgradeTab:CreateButton({ Name = 'Enable All Earners', Flag = 'EnableAllUpgrades', Callback = function() for _, e in ipairs(EarnerRemotes) do State.EarnerAutoUpgrade[e.name] = true end Rayfield:Notify({ Title = 'Enabled', Content = 'All earners enabled!', Duration = 3, Image = 'check-circle' }) end })
+UpgradeTab:CreateButton({ Name = 'Disable All Earners', Flag = 'DisableAllUpgrades', Callback = function() for _, e in ipairs(EarnerRemotes) do State.EarnerAutoUpgrade[e.name] = false end Rayfield:Notify({ Title = 'Disabled', Content = 'All earners disabled!', Duration = 3, Image = 'x-circle' }) end })
 
 for _, earner in ipairs(EarnerRemotes) do
-    local flagName = 'Upgrade_' .. earner.name:gsub('%s+', '_')
     local level = getEarnerLevel(earner.name)
-    UpgradeTab:CreateToggle({
-        Name = string.format('%s | Level %d', earner.name, level),
-        CurrentValue = false,
-        Flag = flagName,
-        Callback = function(Value) State.EarnerAutoUpgrade[earner.name] = Value end
-    })
+    UpgradeTab:CreateToggle({ Name = string.format('%s | Level %d', earner.name, level), CurrentValue = false, Flag = 'Upgrade_' .. earner.name:gsub('%s+', '_'), Callback = function(Value) State.EarnerAutoUpgrade[earner.name] = Value end })
 end
 
 -- ============================================================
 -- FEATURES TAB
 -- ============================================================
 local FeatureTab = Window:CreateTab('Features', 'zap')
-
 FeatureTab:CreateSection('Auto Features')
 
-FeatureTab:CreateToggle({
-    Name = 'Auto Click Fruit (Pohon Lemon)',
-    CurrentValue = false, Flag = 'AutoFruit',
-    Callback = function(v) State.AutoClickFruit = v end
-})
-
-FeatureTab:CreateToggle({
-    Name = 'Auto Click Stand (ProximityPrompt)',
-    CurrentValue = false, Flag = 'AutoStand',
-    Callback = function(v) State.AutoClickStand = v end
-})
-
-FeatureTab:CreateToggle({
-    Name = 'Auto Wake Income + TimeCash',
-    CurrentValue = false, Flag = 'AutoWake',
-    Callback = function(v) State.AutoWakeIncome = v end
-})
-
-FeatureTab:CreateToggle({
-    Name = 'Auto Rebirth',
-    CurrentValue = false, Flag = 'AutoRebirth',
-    Callback = function(v) State.AutoRebirth = v end
-})
-
-FeatureTab:CreateToggle({
-    Name = 'Auto Evolve',
-    CurrentValue = false, Flag = 'AutoEvolve',
-    Callback = function(v) State.AutoEvolve = v end
-})
-
-FeatureTab:CreateToggle({
-    Name = 'Auto Ascend',
-    CurrentValue = false, Flag = 'AutoAscend',
-    Callback = function(v) State.AutoAscend = v end
-})
+FeatureTab:CreateToggle({ Name = 'Auto Click Fruit (Lemon Trees)', CurrentValue = false, Flag = 'AutoFruit', Callback = function(v) State.AutoClickFruit = v end })
+FeatureTab:CreateToggle({ Name = 'Auto Click Earning (Earner Prompts)', CurrentValue = false, Flag = 'AutoEarning', Callback = function(v) State.AutoClickEarning = v end })
+FeatureTab:CreateToggle({ Name = 'Auto Rebirth', CurrentValue = false, Flag = 'AutoRebirth', Callback = function(v) State.AutoRebirth = v end })
+FeatureTab:CreateToggle({ Name = 'Auto Evolve', CurrentValue = false, Flag = 'AutoEvolve', Callback = function(v) State.AutoEvolve = v end })
+FeatureTab:CreateToggle({ Name = 'Auto Ascend', CurrentValue = false, Flag = 'AutoAscend', Callback = function(v) State.AutoAscend = v end })
 
 FeatureTab:CreateSection('Manual Actions')
-
-FeatureTab:CreateButton({
-    Name = 'Buy Section: Lemon Stand',
-    Flag = 'BuyLemonStand',
-    Callback = function()
-        local bought = smartBuySection('Lemon Stand')
-        Rayfield:Notify({ Title = 'Lemon Stand', Content = 'Bought: ' .. bought .. ' items', Duration = 3, Image = 'shopping-cart' })
-    end
-})
-
-FeatureTab:CreateButton({
-    Name = 'Buy Section: LemonDash',
-    Flag = 'BuyLemonDash',
-    Callback = function()
-        local bought = smartBuySection('LemonDash')
-        Rayfield:Notify({ Title = 'LemonDash', Content = 'Bought: ' .. bought .. ' items', Duration = 3, Image = 'shopping-cart' })
-    end
-})
-
-FeatureTab:CreateButton({
-    Name = 'Rebirth Now',
-    Flag = 'ManualRebirth',
-    Callback = function()
-        local ok = doRebirth(false)
-        Rayfield:Notify({ Title = 'Rebirth', Content = ok and 'Berhasil!' or 'Gagal (belum cukup syarat).', Duration = 4, Image = ok and 'check-circle' or 'x-circle' })
-    end
-})
-
-FeatureTab:CreateButton({
-    Name = 'Evolve Now',
-    Flag = 'ManualEvolve',
-    Callback = function()
-        local ok = doEvolve()
-        Rayfield:Notify({ Title = 'Evolve', Content = ok and 'Berhasil!' or 'Gagal.', Duration = 4, Image = ok and 'check-circle' or 'x-circle' })
-    end
-})
-
-FeatureTab:CreateButton({
-    Name = 'Ascend Now',
-    Flag = 'ManualAscend',
-    Callback = function()
-        local ok = doAscend()
-        Rayfield:Notify({ Title = 'Ascend', Content = ok and 'Berhasil!' or 'Gagal (butuh 100% items).', Duration = 4, Image = ok and 'check-circle' or 'x-circle' })
-    end
-})
+FeatureTab:CreateButton({ Name = 'Buy Section: Lemon Stand', Flag = 'BuyLemonStand', Callback = function() local b = smartBuySection('Lemon Stand') Rayfield:Notify({ Title = 'Lemon Stand', Content = 'Bought: ' .. b .. ' items', Duration = 3, Image = 'shopping-cart' }) end })
+FeatureTab:CreateButton({ Name = 'Buy Section: LemonDash', Flag = 'BuyLemonDash', Callback = function() local b = smartBuySection('LemonDash') Rayfield:Notify({ Title = 'LemonDash', Content = 'Bought: ' .. b .. ' items', Duration = 3, Image = 'shopping-cart' }) end })
+FeatureTab:CreateButton({ Name = 'Rebirth Now', Flag = 'ManualRebirth', Callback = function() local ok = doRebirth(false) Rayfield:Notify({ Title = 'Rebirth', Content = ok and 'Success!' or 'Failed (requirements not met).', Duration = 4, Image = ok and 'check-circle' or 'x-circle' }) end })
+FeatureTab:CreateButton({ Name = 'Evolve Now', Flag = 'ManualEvolve', Callback = function() local ok = doEvolve() Rayfield:Notify({ Title = 'Evolve', Content = ok and 'Success!' or 'Failed.', Duration = 4, Image = ok and 'check-circle' or 'x-circle' }) end })
+FeatureTab:CreateButton({ Name = 'Ascend Now', Flag = 'ManualAscend', Callback = function() local ok = doAscend() Rayfield:Notify({ Title = 'Ascend', Content = ok and 'Success!' or 'Failed (need 100% items).', Duration = 4, Image = ok and 'check-circle' or 'x-circle' }) end })
 
 -- ============================================================
 -- TELEPORT TAB
@@ -571,21 +396,38 @@ local locations = Tycoon:FindFirstChild('Locations')
 if locations then
     for _, loc in ipairs(locations:GetChildren()) do
         if loc:IsA('BasePart') then
-            TP:CreateButton({
-                Name = 'TP to ' .. loc.Name,
-                Flag = 'TP_' .. loc.Name:gsub('%s+', '_'),
-                Callback = function()
-                    local char = LocalPlayer.Character
-                    if char and char:FindFirstChild('HumanoidRootPart') then
-                        char.HumanoidRootPart.CFrame = CFrame.new(loc.Position + Vector3.new(0, 5, 0))
-                        Rayfield:Notify({ Title = 'Teleported', Content = loc.Name, Duration = 2, Image = 'map-pin' })
-                    end
-                end
-            })
+            TP:CreateButton({ Name = 'TP to ' .. loc.Name, Flag = 'TP_' .. loc.Name:gsub('%s+', '_'), Callback = function() local c = LocalPlayer.Character if c and c:FindFirstChild('HumanoidRootPart') then c.HumanoidRootPart.CFrame = CFrame.new(loc.Position + Vector3.new(0, 5, 0)) Rayfield:Notify({ Title = 'Teleported', Content = loc.Name, Duration = 2, Image = 'map-pin' }) end end })
         end
     end
 end
-TP:CreateButton({ Name = 'Rejoin', Flag = 'Rejoin', Callback = function() game:GetService('TeleportService'):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end })
+TP:CreateButton({ Name = 'Rejoin Server', Flag = 'Rejoin', Callback = function() game:GetService('TeleportService'):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end })
+
+-- ============================================================
+-- DISCORD TAB
+-- ============================================================
+local DiscordTab = Window:CreateTab('Discord', 'message-circle')
+DiscordTab:CreateSection('DeepHUB Community')
+DiscordTab:CreateParagraph({
+    Title = 'Join Our Discord',
+    Content = 'Join the DeepHUB community for updates, support, and exclusive scripts!'
+})
+DiscordTab:CreateButton({
+    Name = 'Join DeepHUB Discord',
+    Flag = 'DiscordJoinBtn',
+    Callback = function()
+        setclipboard('https://discord.gg/cgPpYSwvxS')
+        Rayfield:Notify({
+            Title = 'Discord Link Copied!',
+            Content = 'Invite link copied to clipboard.\nPaste it in your browser to join.',
+            Duration = 5,
+            Image = 'message-circle'
+        })
+    end
+})
+DiscordTab:CreateParagraph({
+    Title = 'Discord Invite',
+    Content = 'https://discord.gg/cgPpYSwvxS\n\nClick the button above to copy the link!'
+})
 
 -- ============================================================
 -- SETTINGS TAB
@@ -593,69 +435,56 @@ TP:CreateButton({ Name = 'Rejoin', Flag = 'Rejoin', Callback = function() game:G
 local SettingsTab = Window:CreateTab('Settings', 'settings')
 SettingsTab:CreateSection('Menu')
 SettingsTab:CreateKeybind({ Name = 'Toggle Menu', CurrentKeybind = 'RightShift', HoldToInteract = false, Flag = 'MenuKey', Callback = function() Rayfield:Toggle() end })
-SettingsTab:CreateButton({ Name = 'Unload', Flag = 'Unload', Callback = function() Rayfield:Notify({ Title = 'Unloading...', Content = 'Bye!', Duration = 2, Image = 'power' }); task.wait(2); Rayfield:Destroy() end })
+SettingsTab:CreateButton({ Name = 'Unload Script', Flag = 'Unload', Callback = function() Rayfield:Notify({ Title = 'Unloading...', Content = 'Goodbye!', Duration = 2, Image = 'power' }); task.wait(2); Rayfield:Destroy() end })
+SettingsTab:CreateParagraph({
+    Title = 'DeepHUB v4.0',
+    Content = 'Press RightShift to toggle menu.\nConfiguration auto-saved.\n\nJoin Discord: https://discord.gg/cgPpYSwvxS'
+})
 
 -- ============================================================
 -- LOOPS
 -- ============================================================
-
--- Smart Buy Loop: beli item yang UANG CUKUP per section
 task.spawn(function()
     while true do
-        for sectionName, enabled in pairs(State.SectionAutoBuy) do
-            if enabled then
-                smartBuySection(sectionName)
-                task.wait(State.BuyDelay)
-            end
+        for sn, enabled in pairs(State.SectionAutoBuy) do
+            if enabled then smartBuySection(sn); task.wait(State.BuyDelay) end
         end
         task.wait(1)
     end
 end)
 
--- Auto Upgrade Loop
 task.spawn(function()
     while true do
-        for earnerName, enabled in pairs(State.EarnerAutoUpgrade) do
-            if enabled then
-                upgradeEarner(earnerName, State.StackCount)
-                task.wait(State.UpgradeDelay)
-            end
+        for en, enabled in pairs(State.EarnerAutoUpgrade) do
+            if enabled then upgradeEarner(en, State.StackCount); task.wait(State.UpgradeDelay) end
         end
         task.wait(0.5)
     end
 end)
 
--- Auto Click Fruit
 task.spawn(function()
     while true do
         if State.AutoClickFruit then
             refreshClickables()
-            for _, cd in ipairs(FruitClickDetectors) do
-                pcall(function() fireclickdetector(cd) end)
-            end
+            for _, cd in ipairs(FruitClickDetectors) do pcall(function() fireclickdetector(cd) end) end
         end
         task.wait(0.5)
     end
 end)
 
--- Auto Click Earning: Teleport ke earner -> klik Prompt -> pindah ke berikutnya
 task.spawn(function()
     while true do
-        if State.AutoClickStand then
+        if State.AutoClickEarning then
             refreshEarnerRemotes()
             local char = LocalPlayer.Character
-            if char then
-                local hrp = char:FindFirstChild('HumanoidRootPart')
-                if hrp then
-                    for _, earner in ipairs(EarnerRemotes) do
-                        if not State.AutoClickStand then break end
-                        -- Teleport ke earner
-                        hrp.CFrame = CFrame.new(earner.part.Position + Vector3.new(0, 3, 5))
-                        task.wait(0.2)
-                        -- Klik prompt
-                        pcall(function() fireproximityprompt(earner.part:FindFirstChildOfClass('ProximityPrompt')) end)
-                        task.wait(0.3)
-                    end
+            if char and char:FindFirstChild('HumanoidRootPart') then
+                local hrp = char.HumanoidRootPart
+                for _, earner in ipairs(EarnerRemotes) do
+                    if not State.AutoClickEarning then break end
+                    hrp.CFrame = CFrame.new(earner.part.Position + Vector3.new(0, 3, 5))
+                    task.wait(0.2)
+                    pcall(function() fireproximityprompt(earner.part:FindFirstChildOfClass('ProximityPrompt')) end)
+                    task.wait(0.3)
                 end
             end
         end
@@ -663,31 +492,13 @@ task.spawn(function()
     end
 end)
 
--- Auto Wake Income
 task.spawn(function()
     while true do
-        if State.AutoWakeIncome then
-            if WakeIncomeStream then
-                for _, earner in ipairs(EarnerRemotes) do
-                    pcall(function() WakeIncomeStream:InvokeServer(earner.name) end)
-                end
-            end
-        end
+        if State.AutoRebirth then doRebirth(false); doRebirth(true) end
         task.wait(5)
     end
 end)
 
--- Auto Rebirth
-task.spawn(function()
-    while true do
-        if State.AutoRebirth then
-            doRebirth(false); doRebirth(true)
-        end
-        task.wait(5)
-    end
-end)
-
--- Auto Evolve
 task.spawn(function()
     while true do
         if State.AutoEvolve then doEvolve() end
@@ -695,7 +506,6 @@ task.spawn(function()
     end
 end)
 
--- Auto Ascend
 task.spawn(function()
     while true do
         if State.AutoAscend then doAscend() end
@@ -707,8 +517,7 @@ end)
 -- NOTIFY
 -- ============================================================
 Rayfield:Notify({
-    Title = 'DeepHUB - Sell Lemons v3.1',
-    Content = string.format('Loaded! Tycoon: %s | Sections: %d | Earners: %d\nInfo: X/Y bought | unlocked | locked\nTekan RightShift untuk toggle menu.',
-        Tycoon.Name, #SectionMap, #EarnerRemotes),
-    Duration = 6, Image = 'check-circle'
+    Title = 'DeepHUB - Sell Lemons v4.0',
+    Content = string.format('Loaded! Tycoon: %s | Sections: %d | Earners: %d\nJoin Discord: https://discord.gg/cgPpYSwvxS', Tycoon.Name, #SectionMap, #EarnerRemotes),
+    Duration = 8, Image = 'check-circle'
 })
