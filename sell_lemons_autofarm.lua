@@ -1,8 +1,13 @@
 --[[
     ============================================
-    DeepHUB - Sell Lemons Auto Farm v3.0
+    DeepHUB - Sell Lemons Auto Farm v3.1
     UI Library: Rayfield
     Game: Jual Jeruk / Sell Lemons (BloxByte Games)
+    ============================================
+    v3.1 Changes:
+    - Info per section: X/Y unlocked, X bought, X locked
+    - Info earner upgrade level di UI
+    - Cash real-time display
     ============================================
     v3.0 Changes:
     - Per-section auto buy (pilih section mana yang mau dibeli)
@@ -210,13 +215,47 @@ local function smartBuySection(sectionName)
 end
 
 -- ============================================================
+-- SECTION INFO: Check status of each section
+-- ============================================================
+local SectionInfo = {}
+local function getSectionInfo(sectionName)
+    if SectionInfo[sectionName] then return SectionInfo[sectionName] end
+    local items = SectionMap[sectionName]
+    if not items then return nil end
+
+    local bought = 0
+    local unlocked = 0
+    local locked = 0
+
+    for _, item in ipairs(items) do
+        local ok, result = pcall(function() return item.remote:InvokeServer() end)
+        if ok then
+            if result == nil then
+                bought = bought + 1
+            else
+                unlocked = unlocked + 1
+            end
+        else
+            locked = locked + 1
+        end
+    end
+
+    SectionInfo[sectionName] = { bought = bought, unlocked = unlocked, locked = locked, total = #items }
+    return SectionInfo[sectionName]
+end
+
+local function getEarnerLevel(earnerName)
+    return UpgradesConfig:GetAttribute(earnerName) or 0
+end
+
+-- ============================================================
 -- CREATE WINDOW
 -- ============================================================
 local Window = Rayfield:CreateWindow({
-    Name = 'DeepHUB - Sell Lemons v3.0',
+    Name = 'DeepHUB - Sell Lemons v3.1',
     LoadingTitle = 'DeepHUB - Sell Lemons Auto Farm',
-    LoadingSubtitle = 'v3.0 - Per Section Control',
-    ConfigurationSaving = { Enabled = true, FolderName = 'DeepHUB_SellLemons', FileName = 'Config_v3' },
+    LoadingSubtitle = 'v3.1 - Per Section Control + Info',
+    ConfigurationSaving = { Enabled = true, FolderName = 'DeepHUB_SellLemons', FileName = 'Config_v31' },
     KeySystem = false
 })
 
@@ -229,18 +268,47 @@ StatusTab:CreateButton({ Name = 'Tycoon: ' .. Tycoon.Name, Flag = 'TycoonBtn', C
 
 StatusTab:CreateSection('Stats')
 StatusTab:CreateButton({
-    Name = 'Refresh',
+    Name = 'Refresh Stats',
     Flag = 'RefreshBtn',
     Callback = function()
         refreshEarnerRemotes()
         refreshClickables()
+        SectionInfo = {} -- reset cache
+
+        local earnerInfo = {}
+        for _, e in ipairs(EarnerRemotes) do
+            table.insert(earnerInfo, e.name .. ' Lv.' .. getEarnerLevel(e.name))
+        end
+
+        local sectionInfo = {}
+        for name, _ in pairs(SectionMap) do
+            local info = getSectionInfo(name)
+            if info then
+                table.insert(sectionInfo, string.format('%s: %d/%d bought | %d unlocked | %d locked',
+                    name, info.bought, info.total, info.unlocked, info.locked))
+            end
+        end
+
         Rayfield:Notify({
-            Title = 'Stats',
-            Content = string.format('Cash: %s\nEarners: %d | Sections: %d\nFruits: %d | Prompts: %d',
-                formatCash(getActualCash()), #EarnerRemotes, #SectionOrder, #FruitClickDetectors, #EarnerPrompts),
-            Duration = 6, Image = 'bar-chart-2'
+            Title = 'Full Stats',
+            Content = string.format('Cash: %s\n\nEarners:\n%s\n\nSections:\n%s',
+                formatCash(getActualCash()),
+                table.concat(earnerInfo, '\n'),
+                table.concat(sectionInfo, '\n')),
+            Duration = 12, Image = 'bar-chart-2'
         })
     end
+})
+
+-- Section Progress Overview
+StatusTab:CreateParagraph({
+    Title = 'Section Progress',
+    Content = 'Klik Refresh Stats untuk lihat detail lengkap:\n- Berapa item sudah dibeli per section\n- Berapa item unlocked/locked\n- Level setiap earner'
+})
+
+StatusTab:CreateParagraph({
+    Title = 'Earner Levels',
+    Content = 'Klik Refresh Stats untuk lihat level semua earner.'
 })
 
 -- ============================================================
@@ -291,13 +359,22 @@ BuyTab:CreateButton({
     end
 })
 
--- Section Toggles
+-- Section Toggles with Info
 for _, sectionName in ipairs(SectionOrder) do
     local items = SectionMap[sectionName]
     if items then
         local flagName = 'AutoBuy_' .. sectionName:gsub('%s+', '_')
+        -- Get section info (will cache for future calls)
+        local info = getSectionInfo(sectionName)
+        local displayName
+        if info then
+            displayName = string.format('%s | %d/%d bought | %d unlocked | %d locked',
+                sectionName, info.bought, info.total, info.unlocked, info.locked)
+        else
+            displayName = string.format('%s (%d items)', sectionName, #items)
+        end
         BuyTab:CreateToggle({
-            Name = string.format('%s (%d items)', sectionName, #items),
+            Name = displayName,
             CurrentValue = false,
             Flag = flagName,
             Callback = function(Value) State.SectionAutoBuy[sectionName] = Value end
@@ -350,8 +427,9 @@ UpgradeTab:CreateButton({
 
 for _, earner in ipairs(EarnerRemotes) do
     local flagName = 'Upgrade_' .. earner.name:gsub('%s+', '_')
+    local level = getEarnerLevel(earner.name)
     UpgradeTab:CreateToggle({
-        Name = earner.name,
+        Name = string.format('%s | Level %d', earner.name, level),
         CurrentValue = false,
         Flag = flagName,
         Callback = function(Value) State.EarnerAutoUpgrade[earner.name] = Value end
@@ -581,8 +659,8 @@ end)
 -- NOTIFY
 -- ============================================================
 Rayfield:Notify({
-    Title = 'DeepHUB - Sell Lemons v3.0',
-    Content = string.format('Loaded! Tycoon: %s | Sections: %d | Earners: %d\nTekan RightShift untuk toggle menu.',
+    Title = 'DeepHUB - Sell Lemons v3.1',
+    Content = string.format('Loaded! Tycoon: %s | Sections: %d | Earners: %d\nInfo: X/Y bought | unlocked | locked\nTekan RightShift untuk toggle menu.',
         Tycoon.Name, #SectionMap, #EarnerRemotes),
     Duration = 6, Image = 'check-circle'
 })
