@@ -303,13 +303,49 @@ StatusTab:CreateButton({
 -- Section Progress Overview
 StatusTab:CreateParagraph({
     Title = 'Section Progress',
-    Content = 'Klik Refresh Stats untuk lihat detail lengkap:\n- Berapa item sudah dibeli per section\n- Berapa item unlocked/locked\n- Level setiap earner'
+    Content = 'Klik Refresh Stats untuk lihat detail lengkap.\nAuto-refresh setiap 10 detik.'
 })
 
 StatusTab:CreateParagraph({
-    Title = 'Earner Levels',
-    Content = 'Klik Refresh Stats untuk lihat level semua earner.'
+    Title = 'Earner Levels (Live)',
+    Content = 'Loading...'
 })
+
+-- Live update loop for earner levels AND section progress
+task.spawn(function()
+    while true do
+        task.wait(5) -- Update every 5 seconds
+        local earnerInfo = {}
+        for _, e in ipairs(EarnerRemotes) do
+            local level = getEarnerLevel(e.name)
+            table.insert(earnerInfo, string.format('%s: Lv.%d', e.name, level))
+        end
+
+        -- Find the paragraph and update it
+        local mainFrame = Window.MainFrame
+        if mainFrame then
+            local elements = mainFrame:FindFirstChild('Elements')
+            if elements then
+                local statusPage = elements:FindFirstChild('Status')
+                if statusPage then
+                    for _, child in ipairs(statusPage:GetChildren()) do
+                        if child:IsA('Frame') and child:FindFirstChild('Title') then
+                            local title = child.Title
+                            if title and title:IsA('TextLabel') then
+                                if title.Text == 'Earner Levels (Live)' then
+                                    local content = child:FindFirstChild('Content')
+                                    if content and content:IsA('TextLabel') then
+                                        content.Text = table.concat(earnerInfo, '\n')
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
 
 -- ============================================================
 -- AUTO BUY TAB - Per Section
